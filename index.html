@@ -642,6 +642,10 @@
                     <div class="user-email">john@example.com</div>
                 </div>
             </div>
+            <a href="dashboard.html" class="menu-item">
+                <i class="fas fa-chart-line"></i>
+                Dashboard
+            </a>
             <a href="#" class="menu-item">
                 <i class="fas fa-history"></i>
                 History
@@ -671,7 +675,7 @@
                 </p>
             </div>
 
-            <div class="input-group">
+            <form id="analyzeForm" class="input-group">
                 <input 
                     type="url" 
                     id="urlInput" 
@@ -680,24 +684,29 @@
                     aria-label="URL to analyze"
                     autocomplete="off"
                     spellcheck="false"
+                    required
                 >
                 <button 
+                    type="submit"
                     id="analyzeButton" 
-                    class="button" 
-                    disabled
+                    class="button"
                     aria-label="Analyze URL"
                 >
                     <i class="fas fa-magnifying-glass"></i>
                     Analyze
                 </button>
-            </div>
+            </form>
             
-            <div id="loader" class="loader">
+            <div id="loader" class="loader" style="display: none;">
                 <i class="fas fa-circle-notch"></i>
             </div>
             
-            <div id="result" class="result">
-                <!-- Results will be dynamically inserted here -->
+            <div id="result" class="result" style="display: none;">
+                <div class="result-header">
+                    <h3></h3>
+                </div>
+                <div class="risk-score"></div>
+                <div class="result-details"></div>
             </div>
 
             <div id="riskMeter" class="risk-meter">
@@ -787,71 +796,59 @@
     <!-- Embedded JavaScript -->
     <script>
     // API configuration
-const API_URL = 'https://your-api-on-render.com/api'; // Replace with your deployed backend URL
-let accessToken = localStorage.getItem('accessToken');
+    const API_URL = 'http://localhost:5000/api';
+    let accessToken = localStorage.getItem('accessToken');
 
-// Authentication functions
-const updateAuthHeader = () => {
-    return accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {};
-};
+    // Authentication functions
+    const updateAuthHeader = () => {
+        return accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {};
+    };
 
-// Function to handle user login
-const loginUser = async (email, password) => {
-    try {
-        const response = await fetch(`${API_URL}/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
-        });
-
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Login failed');
-
-        // Save credentials in localStorage
-        localStorage.setItem('accessToken', data.access_token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        accessToken = data.access_token;
-        window.location.reload();
-    } catch (error) {
-        alert(error.message);
-    }
-};
-
-// Function to handle user registration
-const registerUser = async (email, password, role) => {
-    try {
-        const response = await fetch(`${API_URL}/auth/register`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, role })
-        });
-
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Registration failed');
-
-        alert('Registration successful! Please log in.');
-    } catch (error) {
-        alert(error.message);
-    }
-};
-
-// Function to check if user is authenticated
-const checkAuthStatus = () => {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    if (user.email) {
-        document.getElementById('loginButton').style.display = 'none';
-        document.getElementById('userMenu').style.display = 'flex';
-        document.getElementById('userEmail').textContent = user.email;
-
-        if (user.role === 'admin') {
-            document.getElementById('adminPanel').classList.add('show');
+    const checkAuthStatus = () => {
+        const user = JSON.parse(localStorage.getItem('user'));
+        const authButtons = document.getElementById('authButtons');
+        const loginButton = authButtons.querySelector('.nav-button');
+        const userMenu = document.getElementById('userMenu');
+        
+        if (user && accessToken) {
+            // Update user menu with actual user information
+            const userNameEl = userMenu.querySelector('.user-name');
+            const userEmailEl = userMenu.querySelector('.user-email');
+            const avatarEl = userMenu.querySelector('.avatar');
+            
+            // Display email as the name if no name is provided
+            userNameEl.textContent = user.email.split('@')[0]; // Use first part of email as name
+            userEmailEl.textContent = user.email;
+            avatarEl.textContent = user.email.substring(0, 2).toUpperCase(); // First two letters of email
+            
+            loginButton.style.display = 'none';
+            userMenu.style.display = 'flex';
+        } else {
+            loginButton.style.display = 'flex';
+            userMenu.style.display = 'none';
         }
-    }
-};
+    };
 
-// URL analysis function
-const analyzeUrl = async (url) => {
-    try {
+    // Usage tracking
+    const updateUsageCount = async () => {
+        try {
+            const response = await fetch(`${API_URL}/usage`, {
+                headers: {
+                    ...updateAuthHeader()
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                document.querySelector('.usage-count').textContent = data.daily_usage;
+            }
+        } catch (error) {
+            console.error('Failed to update usage count:', error);
+        }
+    };
+
+    // URL analysis function
+    const analyzeUrl = async (url) => {
         const response = await fetch(`${API_URL}/analyze`, {
             method: 'POST',
             headers: {
@@ -867,42 +864,77 @@ const analyzeUrl = async (url) => {
         }
 
         return await response.json();
-    } catch (error) {
-        throw new Error(error.message || 'Failed to analyze URL');
-    }
-};
+    };
 
-// Usage tracking
-const updateUsageCount = async () => {
-    if (!accessToken) return;
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', () => {
+        checkAuthStatus();
+        updateUsageCount();
 
-    try {
-        const response = await fetch(`${API_URL}/usage`, {
-            headers: updateAuthHeader()
+        // Add form submission handler
+        const urlForm = document.getElementById('analyzeForm');
+        const urlInput = document.getElementById('urlInput');
+        const analyzeButton = document.getElementById('analyzeButton');
+        const loader = document.getElementById('loader');
+        const result = document.getElementById('result');
+
+        urlForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const url = urlInput.value;
+            
+            if (!url) {
+                alert('Please enter a URL');
+                return;
+            }
+
+            try {
+                analyzeButton.disabled = true;
+                loader.style.display = 'block';
+                result.style.display = 'none';
+
+                const analysis = await analyzeUrl(url);
+                
+                // Update result UI
+                const resultHeader = result.querySelector('.result-header h3');
+                const riskScore = result.querySelector('.risk-score');
+                const resultDetails = result.querySelector('.result-details');
+                
+                resultHeader.textContent = analysis.is_phishing ? '🚫 Potential Phishing Detected' : '✅ URL Appears Safe';
+                riskScore.textContent = `Risk Score: ${(analysis.risk_score * 100).toFixed(1)}%`;
+                
+                // Update analysis details
+                const details = analysis.analysis;
+                resultDetails.innerHTML = `
+                    <p>HTTPS: ${details.uses_https ? '✅' : '❌'}</p>
+                    <p>Suspicious Patterns: ${details.suspicious_patterns_found ? '⚠️' : '✅'}</p>
+                    <p>Unusual Dots: ${details.unusual_dots ? '⚠️' : '✅'}</p>
+                    <p>Special Characters: ${details.special_chars_count}</p>
+                `;
+
+                result.className = 'result ' + (analysis.is_phishing ? 'danger' : 'safe');
+                result.style.display = 'block';
+                
+                // Update usage count
+                updateUsageCount();
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                analyzeButton.disabled = false;
+                loader.style.display = 'none';
+            }
         });
 
-        if (response.ok) {
-            const data = await response.json();
-            document.querySelector('.usage-count').textContent = data.daily_usage;
+        // Logout handler
+        const logoutButton = document.getElementById('logoutButton');
+        if (logoutButton) {
+            logoutButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                localStorage.removeItem('accessToken');
+                localStorage.removeItem('user');
+                window.location.reload();
+            });
         }
-    } catch (error) {
-        console.error('Failed to fetch usage:', error);
-    }
-};
-
-// Initialize page
-document.addEventListener('DOMContentLoaded', () => {
-    checkAuthStatus();
-    updateUsageCount();
-});
-
-// Logout handler
-document.getElementById('logoutButton').addEventListener('click', () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('user');
-    window.location.reload();
-});
-
-</script>
+    });
+    </script>
 </body>
 </html>
